@@ -2,7 +2,7 @@ variables:
   GIT_STRATEGY: fetch
   GIT_SUBMODULE_STRATEGY: recursive
   DOCKER_TAG: ${CI_COMMIT_REF_NAME}
-  DOCKER_IMAGE: registry.git.rwth-aachen.de/acs/public/villas/webrtc-signaling
+  DOCKER_IMAGE: registry.git.rwth-aachen.de/acs/public/villas/signaling
 
 stages:
 

@@ -1,7 +1,6 @@
 # VILLASnode WebRTC signaling server
 
-[![build status](https://git.rwth-aachen.de/acs/public/villas/webrtc-signaling/badges/master/pipeline.svg)](https://git.rwth-aachen.de/acs/public/villas/webrtc-signaling/commits/develop)
-[![coverage report](https://git.rwth-aachen.de/acs/public/villas/webrtc-signaling/badges/master/coverage.svg)](https://git.rwth-aachen.de/acs/public/villas/webrtc-signaling/commits/develop)
+[![build status](https://git.rwth-aachen.de/acs/public/villas/signaling/badges/master/pipeline.svg)](https://git.rwth-aachen.de/acs/public/villas/signaling/-/pipelines/)
 
 This project implements a WebSocket signaling server used for [VILLASnode's WebRTC node-type](https://villas.fein-aachen.org/docs/node/nodes/webrtc).
 

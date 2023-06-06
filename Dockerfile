@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2023 Institute for Automation of Complex Power Systems
 # SPDX-License-Identifier: Apache-2.0
 
-FROM golang:1.17-alpine AS builder
+FROM golang:1.20-alpine AS builder
 
 WORKDIR /app
 

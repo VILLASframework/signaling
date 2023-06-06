@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VILLASframework/signaling/pkg"
 	"github.com/sirupsen/logrus"
-	"github.com/stv0g/pion-perfect-negotation/pkg"
 )
 
 type Session struct {

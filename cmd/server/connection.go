@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
-	"github.com/stv0g/pion-perfect-negotation/pkg"
 )
 
 const (

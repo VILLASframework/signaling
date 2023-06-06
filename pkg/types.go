@@ -3,8 +3,6 @@ package pkg
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/pion/webrtc/v3"
 )
 
 type Session struct {
@@ -14,8 +12,7 @@ type Session struct {
 }
 
 type Connection struct {
-	ID int `json:"id"`
-
+	ID        int       `json:"id"`
 	Remote    string    `json:"remote"`
 	UserAgent string    `json:"user_agent"`
 	Created   time.Time `json:"created"`
@@ -26,15 +23,20 @@ type ControlMessage struct {
 	Connections  []Connection `json:"connections"`
 }
 
-type Role struct {
-	Polite bool `json:"polite"`
-	First  bool `json:"first"`
+type DescriptionMessage struct {
+	Spd  string `json:"spd"`
+	Type string `json:"type"`
+}
+
+type CandidateMessage struct {
+	Spd string `json:"spd"`
+	Mid string `json:"mid"`
 }
 
 type SignalingMessage struct {
-	Description *webrtc.SessionDescription `json:"description,omitempty"`
-	Candidate   *webrtc.ICECandidateInit   `json:"candidate,omitempty"`
-	Control     *ControlMessage            `json:"control,omitempty"`
+	Candidate   *CandidateMessage   `json:"candidate,omitempty"`
+	Control     *ControlMessage     `json:"control,omitempty"`
+	Description *DescriptionMessage `json:"description,omitempty"`
 }
 
 func (msg SignalingMessage) String() string {

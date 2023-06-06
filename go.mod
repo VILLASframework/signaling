@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 Institute for Automation of Complex Power Systems
+// SPDX-License-Identifier: Apache-2.0
+
 module github.com/VILLASframework/signaling
 
 go 1.17

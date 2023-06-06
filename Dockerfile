@@ -12,13 +12,12 @@ RUN go mod download
 COPY ./ ./
 
 RUN go build -o /server ./cmd/server/
-RUN go build -o /client ./cmd/client/
 
 FROM alpine
 
 WORKDIR /
 
-COPY --from=builder /server /client /
+COPY --from=builder /server /
 
 EXPOSE 8080
 

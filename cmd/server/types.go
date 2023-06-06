@@ -1,6 +1,6 @@
 package main
 
-import "github.com/stv0g/pion-perfect-negotation/pkg"
+import "github.com/VILLASframework/signaling/pkg"
 
 type SignalingMessage struct {
 	pkg.SignalingMessage

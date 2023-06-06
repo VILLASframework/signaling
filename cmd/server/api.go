@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/VILLASframework/signaling/pkg"
 	"github.com/sirupsen/logrus"
-	"github.com/stv0g/pion-perfect-negotation/pkg"
 )
 
 type apiResponse struct {

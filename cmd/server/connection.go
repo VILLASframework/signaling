@@ -36,18 +36,14 @@ type Connection struct {
 	Session *Session
 
 	Messages chan SignalingMessage
+	Closing  bool
 
-	close chan struct{}
-	done  chan struct{}
-
-	Closing bool
+	close  chan struct{}
+	done   chan struct{}
+	logger *slog.Logger
 }
 
 func (s *Session) NewConnection(c *websocket.Conn, r *http.Request) (*Connection, error) {
-	slog.Info("New connection",
-		slog.Any("remote", c.RemoteAddr()),
-		slog.Any("session", s))
-
 	d := &Connection{
 		Connection: pkg.Connection{
 			Created:   time.Now(),
@@ -59,7 +55,10 @@ func (s *Session) NewConnection(c *websocket.Conn, r *http.Request) (*Connection
 		Messages: make(chan SignalingMessage),
 		close:    make(chan struct{}),
 		done:     make(chan struct{}),
+		logger:   s.logger.With(slog.Any("remote", c.RemoteAddr())),
 	}
+
+	d.logger.Info("New connection")
 
 	if err := s.AddConnection(d); err != nil {
 		return nil, fmt.Errorf("failed to add connection: %w", err)
@@ -94,17 +93,16 @@ func (d *Connection) read() {
 					d.Closing = true
 					err := d.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(5*time.Second))
 					if err != nil && err != websocket.ErrCloseSent {
-						slog.Error("Failed to send close message", slog.Any("error", err))
+						d.logger.Error("Failed to send close message", slog.Any("error", err))
 					}
 				}
 			} else {
-				slog.Error("Failed to read", slog.Any("error", err))
+				d.logger.Error("Failed to read", slog.Any("error", err))
 			}
 			break
 		}
 
-		slog.Info("Read signaling message",
-			slog.Any("remote", d.Conn.RemoteAddr()),
+		d.logger.Info("Read signaling message",
 			slog.Any("msg", msg))
 		d.Session.Messages <- SignalingMessage{
 			SignalingMessage: msg,
@@ -131,26 +129,25 @@ loop:
 				break loop
 			}
 
-			slog.Info("Sending",
+			d.logger.Info("Sending",
 				slog.Any("from", msg.Sender),
-				slog.Any("to", d.Conn.RemoteAddr()),
 				slog.Any("msg", msg))
 
 			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				slog.Error("Failed to set read deadline", slog.Any("error", err))
+				d.logger.Error("Failed to set read deadline", slog.Any("error", err))
 			}
 			if err := d.Conn.WriteJSON(msg.SignalingMessage); err != nil {
-				slog.Error("Failed to send message", slog.Any("error", err))
+				d.logger.Error("Failed to send message", slog.Any("error", err))
 			}
 
 		case <-ticker.C:
-			slog.Debug("Send ping message")
+			d.logger.Debug("Send ping message")
 
 			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				slog.Error("Failed to set write deadline", slog.Any("error", err))
+				d.logger.Error("Failed to set write deadline", slog.Any("error", err))
 			}
 			if err := d.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
-				slog.Error("Failed to ping", slog.Any("error", err))
+				d.logger.Error("Failed to ping", slog.Any("error", err))
 			}
 		}
 	}
@@ -162,7 +159,7 @@ func (d *Connection) Close() error {
 	}
 
 	d.Closing = true
-	slog.Info("Connection closing", slog.Any("remote", d.Conn.RemoteAddr()))
+	d.logger.Info("Connection closing")
 
 	if err := d.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 		return fmt.Errorf("failed to send close message: %w", err)
@@ -171,7 +168,7 @@ func (d *Connection) Close() error {
 	select {
 	case <-d.done:
 	case <-time.After(time.Second):
-		slog.Warn("Timed-out waiting for connection close")
+		d.logger.Warn("Timed-out waiting for connection close")
 	}
 
 	return nil
@@ -181,12 +178,12 @@ func (d *Connection) closed() {
 	close(d.done)
 
 	if err := d.Conn.Close(); err != nil {
-		slog.Error("Failed to close connection", slog.Any("error", err))
+		d.logger.Error("Failed to close connection", slog.Any("error", err))
 	}
 
-	slog.Info("Connection closed", slog.Any("conn", d))
+	d.logger.Info("Connection closed")
 
 	if err := d.Session.RemoveConnection(d); err != nil {
-		slog.Warn("Failed to remove connection", slog.Any("conn", d))
+		d.logger.Warn("Failed to remove connection")
 	}
 }

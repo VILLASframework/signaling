@@ -23,11 +23,11 @@ type Session struct {
 	ConnectionsMutex sync.RWMutex
 
 	LastConnectionID int
+
+	logger *slog.Logger
 }
 
 func NewSession(name string, relays []pkg.RelayInfo) *Session {
-	slog.Info("Session opened", slog.String("name", name))
-
 	s := &Session{
 		Name:             name,
 		Created:          time.Now(),
@@ -35,7 +35,11 @@ func NewSession(name string, relays []pkg.RelayInfo) *Session {
 		Connections:      map[*Connection]interface{}{},
 		Messages:         make(chan SignalingMessage, 100),
 		LastConnectionID: 0,
+
+		logger: slog.With(slog.String("session", name)),
 	}
+
+	s.logger.Info("Session opened")
 
 	go s.run()
 
@@ -55,7 +59,7 @@ func (s *Session) RemoveConnection(c *Connection) error {
 		delete(sessions, s.Name)
 		sessionsMutex.Unlock()
 
-		slog.Info("Session closed", slog.String("name", s.Name))
+		s.logger.Info("Session closed")
 
 		return nil
 	} else {
@@ -114,7 +118,7 @@ func (s *Session) SendControlMessages() error {
 		if err := c.Conn.WriteJSON(cmsg); err != nil {
 			return err
 		} else {
-			slog.Info("Send control message", slog.Any("msg", cmsg))
+			s.logger.Info("Send control message", slog.Any("msg", cmsg))
 		}
 	}
 

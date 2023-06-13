@@ -100,15 +100,12 @@ func (s *Session) SendRelaysMessage(c *Connection) error {
 }
 
 func (s *Session) SendControlMessages() error {
-	conns := []pkg.Connection{}
-	for c := range s.Connections {
-		conns = append(conns, c.Connection)
+	cmsg := &pkg.SignalingMessage{
+		Control: &pkg.ControlMessage{},
 	}
 
-	cmsg := &pkg.SignalingMessage{
-		Control: &pkg.ControlMessage{
-			Connections: conns,
-		},
+	for c := range s.Connections {
+		cmsg.Control.Connections = append(cmsg.Control.Connections, c.Connection)
 	}
 
 	for c := range s.Connections {

@@ -13,18 +13,46 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
+type relayInfos []pkg.RelayInfo
+
+func (r *relayInfos) String() string {
+	strs := []string{}
+
+	for _, r := range *r {
+		strs = append(strs, r.URL)
+	}
+
+	return strings.Join(strs, ",")
+}
+
+func (r *relayInfos) Set(value string) error {
+	ri, err := pkg.NewRelayInfo(value)
+	if err != nil {
+		return err
+	}
+
+	*r = append(*r, ri)
+
+	return nil
+}
+
 var (
-	addr     = flag.String("addr", ":8080", "http service address")
+	// Flags
+	addr   string
+	relays relayInfos
+
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin:     func(r *http.Request) bool { return true },
-	} // use default options
+	}
+
 	sessions      = map[string]*Session{}
 	sessionsMutex = sync.Mutex{}
 	server        *http.Server
@@ -49,7 +77,7 @@ func wsHandle(rw http.ResponseWriter, r *http.Request) {
 
 	s, ok := sessions[n]
 	if !ok {
-		s = NewSession(n)
+		s = NewSession(n, relays)
 		sessions[n] = s
 	}
 
@@ -78,6 +106,8 @@ func handleSignals(signals chan os.Signal) {
 }
 
 func main() {
+	flag.StringVar(&addr, "addr", ":8080", "http service address")
+	flag.Var(&relays, "relay", "A TURN/STUN relay which is signalled to each connection (can be specified multiple times)")
 	flag.Parse()
 
 	signals := make(chan os.Signal, 10)
@@ -87,7 +117,7 @@ func main() {
 	go handleSignals(signals)
 
 	server = &http.Server{
-		Addr: *addr,
+		Addr: addr,
 	}
 
 	handlerChain := promhttp.InstrumentHandlerDuration(metricHttpRequestDuration,
@@ -106,7 +136,7 @@ func main() {
 	http.HandleFunc("/api/v1/sessions", basicAuth(apiHandle))
 	http.HandleFunc("/", handlerChain)
 
-	logrus.Infof("Listening on: %s", *addr)
+	logrus.Infof("Listening on: %s", addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logrus.Errorf("Failed to listen and serve: %s", err)
 	}

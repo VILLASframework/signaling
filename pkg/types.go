@@ -36,7 +36,16 @@ type CandidateMessage struct {
 	Mid string `json:"mid"`
 }
 
+type RelayMessage struct {
+	URL      string `json:"url"`
+	Username string `json:"user"`
+	Password string `json:"pass"`
+	Realm    string `json:"realm"`
+	Expires  string `json:"expires"`
+}
+
 type SignalingMessage struct {
+	Relays      []RelayMessage      `json:"servers,omitempty"`
 	Candidate   *CandidateMessage   `json:"candidate,omitempty"`
 	Control     *ControlMessage     `json:"control,omitempty"`
 	Description *DescriptionMessage `json:"description,omitempty"`

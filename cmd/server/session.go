@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,18 +18,20 @@ type Session struct {
 
 	Messages chan SignalingMessage
 
+	Relays           []pkg.RelayInfo
 	Connections      map[*Connection]interface{}
 	ConnectionsMutex sync.RWMutex
 
 	LastConnectionID int
 }
 
-func NewSession(name string) *Session {
+func NewSession(name string, relays []pkg.RelayInfo) *Session {
 	logrus.Infof("Session opened: %s", name)
 
 	s := &Session{
 		Name:             name,
 		Created:          time.Now(),
+		Relays:           relays,
 		Connections:      map[*Connection]interface{}{},
 		Messages:         make(chan SignalingMessage, 100),
 		LastConnectionID: 0,
@@ -69,7 +72,31 @@ func (s *Session) AddConnection(c *Connection) error {
 
 	s.Connections[c] = nil
 
-	return s.SendControlMessages()
+	if err := s.SendRelaysMessage(c); err != nil {
+		return fmt.Errorf("failed to send relays message: %w", err)
+	}
+
+	if err := s.SendControlMessages(); err != nil {
+		return fmt.Errorf("failed to send control messages: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Session) SendRelaysMessage(c *Connection) error {
+	cmsg := &pkg.SignalingMessage{}
+	for _, relay := range s.Relays {
+		user, pass, exp := relay.GetCredentials("villas")
+		cmsg.Relays = append(cmsg.Relays, pkg.RelayMessage{
+			URL:      relay.URL,
+			Username: user,
+			Password: pass,
+			Realm:    relay.Realm,
+			Expires:  exp.Format(time.RFC3339),
+		})
+	}
+
+	return c.Conn.WriteJSON(cmsg)
 }
 
 func (s *Session) SendControlMessages() error {

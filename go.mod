@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/pion/stun v0.6.0
 	github.com/prometheus/client_golang v1.15.1
-	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 )
 
 require (

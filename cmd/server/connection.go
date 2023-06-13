@@ -11,7 +11,7 @@ import (
 
 	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 const (
@@ -44,7 +44,9 @@ type Connection struct {
 }
 
 func (s *Session) NewConnection(c *websocket.Conn, r *http.Request) (*Connection, error) {
-	logrus.Infof("New connection from %s for session '%s'", c.RemoteAddr(), s)
+	slog.Info("New connection",
+		slog.Any("remote", c.RemoteAddr()),
+		slog.Any("session", s))
 
 	d := &Connection{
 		Connection: pkg.Connection{
@@ -59,13 +61,16 @@ func (s *Session) NewConnection(c *websocket.Conn, r *http.Request) (*Connection
 		done:     make(chan struct{}),
 	}
 
-	s.AddConnection(d)
+	if err := s.AddConnection(d); err != nil {
+		return nil, fmt.Errorf("failed to add connection: %w", err)
+	}
 
 	d.Conn.SetReadLimit(maxMessageSize)
-	d.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := d.Conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		return nil, fmt.Errorf("failed to set read deadline: %w", err)
+	}
 	d.Conn.SetPongHandler(func(string) error {
-		d.Conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
+		return d.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
 	go d.read()
@@ -89,16 +94,18 @@ func (d *Connection) read() {
 					d.Closing = true
 					err := d.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(5*time.Second))
 					if err != nil && err != websocket.ErrCloseSent {
-						logrus.Errorf("Failed to send close message: %s", err)
+						slog.Error("Failed to send close message", slog.Any("error", err))
 					}
 				}
 			} else {
-				logrus.Errorf("Failed to read: %s", err)
+				slog.Error("Failed to read", slog.Any("error", err))
 			}
 			break
 		}
 
-		logrus.Infof("Read signaling message from %s: %s", d.Conn.RemoteAddr(), msg)
+		slog.Info("Read signaling message",
+			slog.Any("remote", d.Conn.RemoteAddr()),
+			slog.Any("msg", msg))
 		d.Session.Messages <- SignalingMessage{
 			SignalingMessage: msg,
 			Sender:           d,
@@ -124,19 +131,26 @@ loop:
 				break loop
 			}
 
-			logrus.Infof("Sending from %s to %s: %s", msg.Sender, d.Conn.RemoteAddr(), msg)
+			slog.Info("Sending",
+				slog.Any("from", msg.Sender),
+				slog.Any("to", d.Conn.RemoteAddr()),
+				slog.Any("msg", msg))
 
-			d.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				slog.Error("Failed to set read deadline", slog.Any("error", err))
+			}
 			if err := d.Conn.WriteJSON(msg.SignalingMessage); err != nil {
-				logrus.Errorf("Failed to send message: %s", err)
+				slog.Error("Failed to send message", slog.Any("error", err))
 			}
 
 		case <-ticker.C:
-			logrus.Debug("Send ping message")
+			slog.Debug("Send ping message")
 
-			d.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				slog.Error("Failed to set write deadline", slog.Any("error", err))
+			}
 			if err := d.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
-				logrus.Errorf("Failed to ping: %s", err)
+				slog.Error("Failed to ping", slog.Any("error", err))
 			}
 		}
 	}
@@ -148,7 +162,7 @@ func (d *Connection) Close() error {
 	}
 
 	d.Closing = true
-	logrus.Infof("Connection closing: %s", d.Conn.RemoteAddr())
+	slog.Info("Connection closing", slog.Any("remote", d.Conn.RemoteAddr()))
 
 	if err := d.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 		return fmt.Errorf("failed to send close message: %w", err)
@@ -157,7 +171,7 @@ func (d *Connection) Close() error {
 	select {
 	case <-d.done:
 	case <-time.After(time.Second):
-		logrus.Warn("Timed-out waiting for connection close")
+		slog.Warn("Timed-out waiting for connection close")
 	}
 
 	return nil
@@ -167,10 +181,12 @@ func (d *Connection) closed() {
 	close(d.done)
 
 	if err := d.Conn.Close(); err != nil {
-		logrus.Errorf("Failed to close connection: %w", err)
+		slog.Error("Failed to close connection", slog.Any("error", err))
 	}
 
-	logrus.Infof("Connection closed: %s", d.String())
+	slog.Info("Connection closed", slog.Any("conn", d))
 
-	d.Session.RemoveConnection(d)
+	if err := d.Session.RemoveConnection(d); err != nil {
+		slog.Warn("Failed to remove connection", slog.Any("conn", d))
+	}
 }

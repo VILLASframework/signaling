@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/VILLASframework/signaling/pkg"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type apiResponse struct {
@@ -35,6 +35,6 @@ func apiHandle(w http.ResponseWriter, r *http.Request) {
 	resp.Sessions = ss
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logrus.Errorf("Failed to encode API response: %s", err)
+		slog.Error("Failed to encode API response", slog.Any("error", err))
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type Session struct {
@@ -26,7 +26,7 @@ type Session struct {
 }
 
 func NewSession(name string, relays []pkg.RelayInfo) *Session {
-	logrus.Infof("Session opened: %s", name)
+	slog.Info("Session opened", slog.String("name", name))
 
 	s := &Session{
 		Name:             name,
@@ -55,7 +55,7 @@ func (s *Session) RemoveConnection(c *Connection) error {
 		delete(sessions, s.Name)
 		sessionsMutex.Unlock()
 
-		logrus.Infof("Session closed: %s", s.Name)
+		slog.Info("Session closed", slog.String("name", s.Name))
 
 		return nil
 	} else {
@@ -117,7 +117,7 @@ func (s *Session) SendControlMessages() error {
 		if err := c.Conn.WriteJSON(cmsg); err != nil {
 			return err
 		} else {
-			logrus.Infof("Send control message: %s", cmsg)
+			slog.Info("Send control message", slog.Any("msg", cmsg))
 		}
 	}
 

@@ -16,7 +16,7 @@ import (
 	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 type relayInfos []pkg.RelayInfo
@@ -61,14 +61,14 @@ var (
 func wsHandle(rw http.ResponseWriter, r *http.Request) {
 	c, err := upgrader.Upgrade(rw, r, nil)
 	if err != nil {
-		logrus.Errorf("Failed to upgrade: %s", err)
+		slog.Error("Failed to upgrade", slog.Any("error", err))
 		http.Error(rw, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
 	n := strings.TrimLeft(r.URL.Path, "/")
 	if n == "" {
-		logrus.Error("Empty session name")
+		slog.Error("Empty session name")
 		http.Error(rw, "Bad Request", http.StatusBadRequest)
 		return
 	}
@@ -82,7 +82,7 @@ func wsHandle(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.NewConnection(c, r); err != nil {
-		logrus.Errorf("Failed to create connection: %s", err)
+		slog.Error("Failed to create connection", slog.Any("error", err))
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 	}
 
@@ -94,13 +94,15 @@ func handleSignals(signals chan os.Signal) {
 		sessionsMutex.Lock()
 		for _, s := range sessions {
 			if err := s.Close(); err != nil {
-				logrus.Panicf("Failed to close session: %s", err)
+				slog.Error("Failed to close session", slog.Any("error", err))
+				panic(err)
 			}
 		}
 		sessionsMutex.Unlock()
 
 		if err := server.Shutdown(context.Background()); err != nil {
-			logrus.Panicf("Failed to shutdown HTTP server: %s", err)
+			slog.Error("Failed to shutdown HTTP server", slog.Any("error", err))
+			panic(err)
 		}
 	}
 }
@@ -131,13 +133,13 @@ func main() {
 		http.Error(rw, "Not found", http.StatusNotFound)
 	})
 	http.HandleFunc("/healthz", func(rw http.ResponseWriter, r *http.Request) {
-		rw.Write([]byte("OK"))
+		rw.Write([]byte("OK")) //nolint:errcheck
 	})
 	http.HandleFunc("/api/v1/sessions", basicAuth(apiHandle))
 	http.HandleFunc("/", handlerChain)
 
-	logrus.Infof("Listening on: %s", addr)
+	slog.Info("Listening", slog.String("addr", addr))
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logrus.Errorf("Failed to listen and serve: %s", err)
+		slog.Error("Failed to listen and serve", slog.Any("error", err))
 	}
 }

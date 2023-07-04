@@ -13,16 +13,24 @@ var (
 		Name: "signaling_active_sessions",
 		Help: "The total number of active sessions",
 	}, func() float64 {
+		sessionsMutex.RLock()
+		defer sessionsMutex.RUnlock()
+
 		return float64(len(sessions))
 	})
 
 	_ = promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: "signaling_active_connections",
+		Name: "signaling_active_peers",
 		Help: "The total number of active connections",
 	}, func() float64 {
-		var cnt = 0
+		sessionsMutex.RLock()
+		defer sessionsMutex.RUnlock()
+
+		cnt := 0
 		for _, s := range sessions {
-			cnt += len(s.Connections)
+			s.mutex.RLock()
+			cnt += len(s.peers)
+			s.mutex.RUnlock()
 		}
 		return float64(cnt)
 	})
@@ -38,16 +46,16 @@ var (
 	})
 
 	metricMessagesReceived = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "signaling_candidates",
+		Name: "signaling_messages",
 		Help: "The total number of messages exchanged",
 	}, []string{"type"})
 
-	metricHttpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	metricHttpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "http_requests_total",
 		Help: "Count of all HTTP requests",
 	}, []string{"code", "method"})
 
-	metricHttpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	metricHttpRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "http_request_duration_seconds",
 		Help: "Duration of all HTTP requests",
 	}, []string{"code", "method"})

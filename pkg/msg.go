@@ -8,8 +8,8 @@ import (
 )
 
 type ControlMessage struct {
-	ConnectionID int          `json:"connection_id"`
-	Connections  []Connection `json:"connections"`
+	PeerID int32  `json:"peer_id"`
+	Peers  []Peer `json:"peers"`
 }
 
 type DescriptionMessage struct {
@@ -22,7 +22,7 @@ type CandidateMessage struct {
 	Mid string `json:"mid"`
 }
 
-type RelayMessage struct {
+type Relay struct {
 	URL      string `json:"url"`
 	Username string `json:"user"`
 	Password string `json:"pass"`
@@ -31,7 +31,8 @@ type RelayMessage struct {
 }
 
 type SignalingMessage struct {
-	Relays      []RelayMessage      `json:"servers,omitempty"`
+	Signals     []Signal            `json:"signals,omitempty"`
+	Relays      []Relay             `json:"servers,omitempty"`
 	Candidate   *CandidateMessage   `json:"candidate,omitempty"`
 	Control     *ControlMessage     `json:"control,omitempty"`
 	Description *DescriptionMessage `json:"description,omitempty"`

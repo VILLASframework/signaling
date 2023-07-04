@@ -14,176 +14,214 @@ import (
 	"golang.org/x/exp/slog"
 )
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 10 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 4096
-)
-
 type Connection struct {
-	pkg.Connection
-
 	*websocket.Conn
 
-	Session *Session
+	peer *Peer
 
-	Messages chan SignalingMessage
-	Closing  bool
+	messages chan SignalingMessage
+	closing  bool
+	close    chan struct{}
+	done     chan struct{}
 
-	close  chan struct{}
-	done   chan struct{}
 	logger *slog.Logger
 }
 
-func (s *Session) NewConnection(c *websocket.Conn, r *http.Request) (*Connection, error) {
-	d := &Connection{
-		Connection: pkg.Connection{
-			Created:   time.Now(),
-			Remote:    r.RemoteAddr,
-			UserAgent: r.UserAgent(),
-		},
-		Conn:     c,
-		Session:  s,
-		Messages: make(chan SignalingMessage),
+func (p *Peer) Connect(w http.ResponseWriter, r *http.Request) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if p.conn != nil {
+		return errors.New("peer is already connected")
+	}
+
+	wsConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return fmt.Errorf("failed to upgrade connection: %w", err)
+	}
+
+	p.id = p.session.lastPeerID.Add(1)
+	p.userAgent = r.UserAgent()
+	p.connected = time.Now()
+	p.conn = &Connection{
+		Conn:     wsConn,
+		peer:     p,
+		messages: make(chan SignalingMessage),
 		close:    make(chan struct{}),
 		done:     make(chan struct{}),
-		logger:   s.logger.With(slog.Any("remote", c.RemoteAddr())),
+		logger:   p.logger.With(slog.String("remote", r.RemoteAddr)),
 	}
 
-	d.logger.Info("New connection")
-
-	if err := s.AddConnection(d); err != nil {
-		return nil, fmt.Errorf("failed to add connection: %w", err)
+	p.conn.SetReadLimit(maxMessageSize)
+	if err := p.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 
-	d.Conn.SetReadLimit(maxMessageSize)
-	if err := d.Conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-		return nil, fmt.Errorf("failed to set read deadline: %w", err)
-	}
-	d.Conn.SetPongHandler(func(string) error {
-		return d.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	p.conn.SetPongHandler(func(string) error {
+		return p.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	go d.read()
-	go d.run()
+	if err := p.conn.RecvSignalsMessage(); err != nil {
+		return fmt.Errorf("failed to receive signals message: %w", err)
+	}
 
-	metricConnectionsCreated.Inc()
+	if err := p.conn.SendRelaysMessage(); err != nil {
+		return fmt.Errorf("failed to send relays message: %w", err)
+	}
 
-	return d, nil
+	if err := p.session.SendControlMessageToAllConnectedPeers(); err != nil {
+		return fmt.Errorf("failed to send control messages: %w", err)
+	}
+
+	go p.conn.read()
+	go p.conn.run()
+
+	return nil
 }
 
-func (d *Connection) String() string {
-	return d.Conn.RemoteAddr().String()
+func (c *Connection) Close() error {
+	if c.closing {
+		return errors.New("connection is closing")
+	}
+
+	c.closing = true
+	c.logger.Info("Connection closing")
+
+	if err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
+		return fmt.Errorf("failed to send close message: %w", err)
+	}
+
+	select {
+	case <-c.done:
+	case <-time.After(time.Second):
+		c.logger.Warn("Timed-out waiting for connection close")
+	}
+
+	c.peer.connected = time.Time{}
+	c.peer.conn = nil
+
+	return nil
 }
 
-func (d *Connection) read() {
+func (c *Connection) RecvSignalsMessage() error {
+	msg := &pkg.SignalingMessage{}
+
+	if err := c.ReadJSON(msg); err != nil {
+		return fmt.Errorf("failed to read signaling message: %w", err)
+	}
+
+	// TODO: Wait until we get valid signals from node
+	if false && msg.Signals != nil {
+		c.peer.mutex.Lock()
+		c.peer.signals = msg.Signals
+		c.peer.mutex.Unlock()
+
+		c.logger.Debug("Received signals", slog.Any("signals", msg.Signals))
+	}
+
+	return nil
+}
+
+func (c *Connection) SendRelaysMessage() error {
+	msg := &pkg.SignalingMessage{}
+
+	for _, relay := range relays {
+		user, pass, exp := relay.GetCredentials("villas")
+		msg.Relays = append(msg.Relays, pkg.Relay{
+			URL:      relay.URL,
+			Username: user,
+			Password: pass,
+			Realm:    relay.Realm,
+			Expires:  exp.Format(time.RFC3339),
+		})
+	}
+
+	return c.WriteJSON(msg)
+}
+
+func (c *Connection) handleMessage(msg pkg.SignalingMessage) {
+	c.logger.Info("Received signaling message", slog.Any("msg", msg))
+
+	c.peer.session.messages <- SignalingMessage{
+		SignalingMessage: msg,
+		Sender:           c.peer,
+	}
+}
+
+func (c *Connection) read() {
 	for {
-		var msg pkg.SignalingMessage
-		if err := d.Conn.ReadJSON(&msg); err != nil {
+		msg := pkg.SignalingMessage{}
+		if err := c.ReadJSON(&msg); err != nil {
 			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				if !d.Closing {
-					d.Closing = true
-					err := d.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(5*time.Second))
+				if !c.closing {
+					c.closing = true
+					err := c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(5*time.Second))
 					if err != nil && err != websocket.ErrCloseSent {
-						d.logger.Error("Failed to send close message", slog.Any("error", err))
+						c.logger.Error("Failed to send close message", slog.Any("error", err))
 					}
 				}
 			} else {
-				d.logger.Error("Failed to read", slog.Any("error", err))
+				c.logger.Error("Failed to read", slog.Any("error", err))
 			}
 			break
 		}
 
-		d.logger.Info("Read signaling message",
-			slog.Any("msg", msg))
-		d.Session.Messages <- SignalingMessage{
-			SignalingMessage: msg,
-			Sender:           d,
-		}
+		c.handleMessage(msg)
 	}
 
-	d.closed()
+	c.closed()
 }
 
-func (d *Connection) run() {
+func (c *Connection) run() {
 	ticker := time.NewTicker(pingPeriod)
 
 loop:
 	for {
 		select {
 
-		case <-d.done:
+		case <-c.done:
 			break loop
 
-		case msg, ok := <-d.Messages:
+		case msg, ok := <-c.messages:
 			if !ok {
-				d.Close()
+				c.Close()
 				break loop
 			}
 
-			d.logger.Info("Sending",
+			c.logger.Info("Sending signaling message",
 				slog.Any("from", msg.Sender),
 				slog.Any("msg", msg))
 
-			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				d.logger.Error("Failed to set read deadline", slog.Any("error", err))
+			if err := c.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				c.logger.Error("Failed to set read deadline", slog.Any("error", err))
 			}
-			if err := d.Conn.WriteJSON(msg.SignalingMessage); err != nil {
-				d.logger.Error("Failed to send message", slog.Any("error", err))
+
+			if err := c.WriteJSON(msg.SignalingMessage); err != nil {
+				c.logger.Error("Failed to send message", slog.Any("error", err))
 			}
 
 		case <-ticker.C:
-			d.logger.Debug("Send ping message")
+			c.logger.Debug("Send ping message")
 
-			if err := d.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				d.logger.Error("Failed to set write deadline", slog.Any("error", err))
+			if err := c.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				c.logger.Error("Failed to set write deadline", slog.Any("error", err))
 			}
-			if err := d.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
-				d.logger.Error("Failed to ping", slog.Any("error", err))
+
+			if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+				c.logger.Error("Failed to ping", slog.Any("error", err))
 			}
 		}
 	}
 }
 
-func (d *Connection) Close() error {
-	if d.Closing {
-		return errors.New("connection is closing")
+func (c *Connection) closed() {
+	close(c.done)
+
+	if err := c.Conn.Close(); err != nil {
+		c.logger.Error("Failed to close connection", slog.Any("error", err))
 	}
 
-	d.Closing = true
-	d.logger.Info("Connection closing")
+	c.logger.Info("Connection closed")
 
-	if err := d.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-		return fmt.Errorf("failed to send close message: %w", err)
-	}
-
-	select {
-	case <-d.done:
-	case <-time.After(time.Second):
-		d.logger.Warn("Timed-out waiting for connection close")
-	}
-
-	return nil
-}
-
-func (d *Connection) closed() {
-	close(d.done)
-
-	if err := d.Conn.Close(); err != nil {
-		d.logger.Error("Failed to close connection", slog.Any("error", err))
-	}
-
-	d.logger.Info("Connection closed")
-
-	if err := d.Session.RemoveConnection(d); err != nil {
-		d.logger.Warn("Failed to remove connection")
-	}
+	c.peer.conn = nil
 }

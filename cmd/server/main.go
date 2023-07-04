@@ -6,14 +6,16 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
+	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/exp/slog"
@@ -46,6 +48,7 @@ var (
 	// Flags
 	addr   string
 	relays relayInfos
+	level  string
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -54,91 +57,110 @@ var (
 	}
 
 	sessions      = map[string]*Session{}
-	sessionsMutex = sync.Mutex{}
+	sessionsMutex = sync.RWMutex{}
 	server        *http.Server
 )
-
-func wsHandle(rw http.ResponseWriter, r *http.Request) {
-	c, err := upgrader.Upgrade(rw, r, nil)
-	if err != nil {
-		slog.Error("Failed to upgrade", slog.Any("error", err))
-		http.Error(rw, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	n := strings.TrimLeft(r.URL.Path, "/")
-	if n == "" {
-		slog.Error("Empty session name")
-		http.Error(rw, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	sessionsMutex.Lock()
-
-	s, ok := sessions[n]
-	if !ok {
-		s = NewSession(n, relays)
-		sessions[n] = s
-	}
-
-	if _, err := s.NewConnection(c, r); err != nil {
-		slog.Error("Failed to create connection", slog.Any("error", err))
-		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
-	}
-
-	sessionsMutex.Unlock()
-}
-
-func handleSignals(signals chan os.Signal) {
-	for range signals {
-		sessionsMutex.Lock()
-		for _, s := range sessions {
-			if err := s.Close(); err != nil {
-				slog.Error("Failed to close session", slog.Any("error", err))
-				panic(err)
-			}
-		}
-		sessionsMutex.Unlock()
-
-		if err := server.Shutdown(context.Background()); err != nil {
-			slog.Error("Failed to shutdown HTTP server", slog.Any("error", err))
-			panic(err)
-		}
-	}
-}
 
 func main() {
 	flag.StringVar(&addr, "addr", ":8080", "http service address")
 	flag.Var(&relays, "relay", "A TURN/STUN relay which is signalled to each connection (can be specified multiple times)")
+	flag.StringVar(&level, "level", "debug", "The log level")
 	flag.Parse()
 
-	signals := make(chan os.Signal, 10)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	// h := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	// 	Level: slog.LevelDebug,
+	// })
+	// slog.SetDefault(slog.New(h))
 
-	// Block until signal is received
-	go handleSignals(signals)
+	r := mux.NewRouter()
 
-	server = &http.Server{
-		Addr: addr,
-	}
-
-	handlerChain := promhttp.InstrumentHandlerDuration(metricHttpRequestDuration,
-		promhttp.InstrumentHandlerCounter(metricHttpRequestsTotal,
-			http.HandlerFunc(wsHandle),
-		),
+	r.Use(
+		func(next http.Handler) http.Handler {
+			return promhttp.InstrumentHandlerCounter(metricHttpRequestsTotal, next)
+		},
+		func(next http.Handler) http.Handler {
+			return promhttp.InstrumentHandlerDuration(metricHttpRequestDuration, next)
+		},
 	)
 
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/favicon.ico", func(rw http.ResponseWriter, r *http.Request) {
-		http.Error(rw, "Not found", http.StatusNotFound)
+	r.Path("/metrics").
+		Methods("GET").
+		Handler(promhttp.Handler())
+
+	r.Path("/favicon.ico").
+		Methods("GET").
+		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			http.Error(rw, "Not found", http.StatusNotFound)
+		})
+
+	r.Path("/healthz").
+		Methods("GET", "OPTIONS").
+		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			rw.Write([]byte("OK")) //nolint:errcheck
+		})
+
+	r.Path("/{session}").
+		HandlerFunc(handleWebsocket)
+
+	r.Path("/{session}/{connection}").
+		HandlerFunc(handleWebsocket)
+
+	a := r.PathPrefix("/api/v1").Subrouter()
+
+	a.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Content-Type", "application/json")
+			next.ServeHTTP(w, r)
+		})
 	})
-	http.HandleFunc("/healthz", func(rw http.ResponseWriter, r *http.Request) {
-		rw.Write([]byte("OK")) //nolint:errcheck
-	})
-	http.HandleFunc("/api/v1/sessions", basicAuth(apiHandle))
-	http.HandleFunc("/", handlerChain)
+
+	a.Path("/sessions").
+		Methods("GET").
+		HandlerFunc(basicAuth(handleAPISessions))
+
+	a.Path("/session/{session}").
+		Methods("GET").
+		HandlerFunc(handleAPISession)
+
+	a.Path("/peer/{session}/{peer}").
+		Methods("GET", "POST").
+		HandlerFunc(handleAPIPeer)
+
+	r.PathPrefix("/").
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request"))
+		})
+
+	expiryTicker := time.NewTicker(10 * time.Second)
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+
+	go func() {
+		for {
+			select {
+			case <-expiryTicker.C:
+				expireSessions()
+
+			case sig := <-signals:
+				slog.Debug("Received signal", slog.Any("signal", sig))
+
+				closeSessions()
+
+				if err := server.Shutdown(context.Background()); err != nil {
+					slog.Error("Failed to shutdown HTTP server", slog.Any("error", err))
+				}
+			}
+		}
+	}()
 
 	slog.Info("Listening", slog.String("addr", addr))
+
+	server = &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("Failed to listen and serve", slog.Any("error", err))
 	}

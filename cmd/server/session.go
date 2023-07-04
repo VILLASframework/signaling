@@ -4,8 +4,8 @@
 package main
 
 import (
-	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
@@ -16,25 +16,22 @@ type Session struct {
 	Name    string
 	Created time.Time
 
-	Messages chan SignalingMessage
+	messages chan SignalingMessage
 
-	Relays           []pkg.RelayInfo
-	Connections      map[*Connection]interface{}
-	ConnectionsMutex sync.RWMutex
+	peers map[string]*Peer
+	mutex sync.RWMutex
 
-	LastConnectionID int
+	lastPeerID atomic.Int32
 
 	logger *slog.Logger
 }
 
-func NewSession(name string, relays []pkg.RelayInfo) *Session {
+func NewSession(name string) *Session {
 	s := &Session{
-		Name:             name,
-		Created:          time.Now(),
-		Relays:           relays,
-		Connections:      map[*Connection]interface{}{},
-		Messages:         make(chan SignalingMessage, 100),
-		LastConnectionID: 0,
+		Name:     name,
+		Created:  time.Now(),
+		peers:    map[string]*Peer{},
+		messages: make(chan SignalingMessage, 100),
 
 		logger: slog.With(slog.String("session", name)),
 	}
@@ -48,77 +45,48 @@ func NewSession(name string, relays []pkg.RelayInfo) *Session {
 	return s
 }
 
-func (s *Session) RemoveConnection(c *Connection) error {
-	s.ConnectionsMutex.Lock()
-	defer s.ConnectionsMutex.Unlock()
+func GetSession(name string) *Session {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
 
-	delete(s.Connections, c)
-
-	if len(s.Connections) == 0 {
-		sessionsMutex.Lock()
-		delete(sessions, s.Name)
-		sessionsMutex.Unlock()
-
-		s.logger.Info("Session closed")
-
-		return nil
-	} else {
-		return s.SendControlMessages()
+	s := sessions[name]
+	if s == nil {
+		s = NewSession(name)
+		sessions[name] = s
 	}
+
+	return s
 }
 
-func (s *Session) AddConnection(c *Connection) error {
-	s.ConnectionsMutex.Lock()
-	defer s.ConnectionsMutex.Unlock()
+func (s *Session) RemovePeer(c *Peer) error {
+	s.mutex.Lock()
+	delete(s.peers, c.Name)
+	s.mutex.Unlock()
 
-	c.ID = s.LastConnectionID
-	s.LastConnectionID++
-
-	s.Connections[c] = nil
-
-	if err := s.SendRelaysMessage(c); err != nil {
-		return fmt.Errorf("failed to send relays message: %w", err)
-	}
-
-	if err := s.SendControlMessages(); err != nil {
-		return fmt.Errorf("failed to send control messages: %w", err)
-	}
-
-	return nil
+	return s.SendControlMessageToAllConnectedPeers()
 }
 
-func (s *Session) SendRelaysMessage(c *Connection) error {
-	cmsg := &pkg.SignalingMessage{}
-	for _, relay := range s.Relays {
-		user, pass, exp := relay.GetCredentials("villas")
-		cmsg.Relays = append(cmsg.Relays, pkg.RelayMessage{
-			URL:      relay.URL,
-			Username: user,
-			Password: pass,
-			Realm:    relay.Realm,
-			Expires:  exp.Format(time.RFC3339),
-		})
-	}
-
-	return c.Conn.WriteJSON(cmsg)
-}
-
-func (s *Session) SendControlMessages() error {
-	cmsg := &pkg.SignalingMessage{
+func (s *Session) SendControlMessageToAllConnectedPeers() error {
+	msg := &pkg.SignalingMessage{
 		Control: &pkg.ControlMessage{},
 	}
 
-	for c := range s.Connections {
-		cmsg.Control.Connections = append(cmsg.Control.Connections, c.Connection)
+	s.mutex.RLock()
+	for _, p := range s.peers {
+		msg.Control.Peers = append(msg.Control.Peers, p.Marshal())
 	}
+	s.mutex.RUnlock()
 
-	for c := range s.Connections {
-		cmsg.Control.ConnectionID = c.ID
+	for _, p := range s.peers {
+		msg.Control.PeerID = p.id
 
-		if err := c.Conn.WriteJSON(cmsg); err != nil {
+		if p.conn == nil {
+			continue
+		}
+		if err := p.conn.WriteJSON(msg); err != nil {
 			return err
 		} else {
-			s.logger.Info("Send control message", slog.Any("msg", cmsg))
+			s.logger.Info("Send control message", slog.Any("msg", msg))
 		}
 	}
 
@@ -129,31 +97,103 @@ func (s *Session) String() string {
 	return s.Name
 }
 
-func (s *Session) run() {
-	for msg := range s.Messages {
-		msg.CollectMetrics()
-
-		s.ConnectionsMutex.RLock()
-
-		for c := range s.Connections {
-			if msg.Sender != c {
-				c.Messages <- msg
-			}
-		}
-
-		s.ConnectionsMutex.RUnlock()
-	}
-}
-
 func (s *Session) Close() error {
-	s.ConnectionsMutex.Lock()
-	defer s.ConnectionsMutex.Unlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	for c := range s.Connections {
-		if err := c.Close(); err != nil {
+	for _, p := range s.peers {
+		if err := p.Close(); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (s *Session) run() {
+	for msg := range s.messages {
+		s.handleMessage(msg)
+	}
+}
+
+func (s *Session) handleMessage(msg SignalingMessage) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	msg.CollectMetrics()
+
+	for _, p := range s.peers {
+		if msg.Sender == p || p.conn == nil {
+			continue
+		}
+
+		p.conn.messages <- msg
+	}
+}
+
+func (s *Session) Marshal() pkg.Session {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	conns := []pkg.Peer{}
+	for _, p := range s.peers {
+		conns = append(conns, p.Marshal())
+	}
+
+	return pkg.Session{
+		Name:    s.Name,
+		Created: s.Created,
+		Peers:   conns,
+	}
+}
+
+func (s *Session) GetPeer(name string) (c *Peer, err error) {
+	var ok bool
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	c, ok = s.peers[name]
+	if !ok {
+		c, err = s.NewPeer(name)
+		if err != nil {
+			return nil, err
+		}
+
+		s.peers[c.Name] = c
+	}
+
+	return c, nil
+}
+
+func closeSessions() {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
+	for name, s := range sessions {
+		if err := s.Close(); err != nil {
+			slog.Error("Failed to close session", slog.Any("error", err))
+		}
+
+		delete(sessions, name)
+	}
+}
+
+func expireSessions() {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
+	for name, session := range sessions {
+		if len(session.peers) == 0 && time.Since(session.Created) > time.Hour {
+			slog.Debug("Removing stale session",
+				slog.String("session", name),
+				slog.Time("created", session.Created))
+
+			if err := session.Close(); err != nil {
+				slog.Error("Failed to close session", slog.Any("error", err))
+			}
+
+			delete(sessions, name)
+		}
+	}
 }

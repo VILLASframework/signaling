@@ -6,6 +6,8 @@ module github.com/VILLASframework/signaling
 go 1.20
 
 require (
+	github.com/google/uuid v1.3.0
+	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/pion/stun v0.6.0
 	github.com/prometheus/client_golang v1.15.1

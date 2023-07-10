@@ -97,9 +97,6 @@ func (c *Connection) Close() error {
 		c.logger.Warn("Timed-out waiting for connection close")
 	}
 
-	c.peer.connected = time.Time{}
-	c.peer.conn = nil
-
 	return nil
 }
 
@@ -215,8 +212,6 @@ loop:
 }
 
 func (c *Connection) closed() {
-	close(c.done)
-
 	if err := c.Conn.Close(); err != nil {
 		c.logger.Error("Failed to close connection", slog.Any("error", err))
 	}
@@ -224,4 +219,18 @@ func (c *Connection) closed() {
 	c.logger.Info("Connection closed")
 
 	c.peer.conn = nil
+	c.peer.connected = time.Time{}
+
+	if err := c.peer.session.SendControlMessageToAllConnectedPeers(); err != nil {
+		c.logger.Error("Failed to send control message", slog.Any("error", err))
+	}
+
+	// Remove peer if it does not have any signal metadata associated
+	if c.peer.signals == nil {
+		if err := c.peer.session.RemovePeer(c.peer); err != nil {
+			c.logger.Error("Failed to close peer", slog.Any("error", err))
+		}
+	}
+
+	close(c.done)
 }

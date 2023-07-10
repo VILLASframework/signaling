@@ -78,11 +78,9 @@ func (p *Peer) Marshal() pkg.Peer {
 }
 
 func (p *Peer) Close() error {
-	if p.conn != nil {
-		if err := p.conn.Close(); err != nil {
-			return err
-		}
+	if p.conn == nil {
+		return nil
 	}
 
-	return nil
+	return p.conn.Close()
 }

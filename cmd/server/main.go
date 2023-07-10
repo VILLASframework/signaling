@@ -102,7 +102,7 @@ func main() {
 	r.Path("/{session}").
 		HandlerFunc(handleWebsocket)
 
-	r.Path("/{session}/{connection}").
+	r.Path("/{session}/{peer}").
 		HandlerFunc(handleWebsocket)
 
 	a := r.PathPrefix("/api/v1").Subrouter()
@@ -123,7 +123,7 @@ func main() {
 		HandlerFunc(handleAPISession)
 
 	a.Path("/peer/{session}/{peer}").
-		Methods("GET", "POST").
+		Methods("GET", "POST", "DELETE").
 		HandlerFunc(handleAPIPeer)
 
 	r.PathPrefix("/").

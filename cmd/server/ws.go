@@ -15,15 +15,20 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
 	sessName := vars["session"]
-	connName, ok := vars["connection"]
+	peerName, ok := vars["peer"]
 	if !ok {
-		connName = uuid.New().String()
+		peerName = uuid.New().String()
 	}
 
-	sess := GetSession(sessName)
-	peer, err := sess.GetPeer(connName)
+	sess, err := GetOrCreateSession(sessName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create connection: %w", err))
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create session: %w", err))
+		return
+	}
+
+	peer, err := sess.GetOrCreatePeer(peerName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create peer: %w", err))
 		return
 	}
 

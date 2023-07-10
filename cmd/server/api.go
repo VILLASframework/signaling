@@ -80,34 +80,41 @@ func handleAPIPeer(w http.ResponseWriter, r *http.Request) {
 	sessName := vars["session"]
 	peerName := vars["peer"]
 
-	// Create sess if this is post request
+	// Create session and peer if this is a POST request
 	var sess *Session
-	if r.Method == "POST" {
+	var peer *Peer
+	var err error
+
+	switch r.Method {
+	case "POST":
+		sess, err = GetOrCreateSession(sessName)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create new session: %w", err))
+			return
+		}
+
+		peer, err = sess.GetOrCreatePeer(peerName)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create new peer: %w", err))
+			return
+		}
+
+	case "GET", "DELETE":
 		sess = GetSession(sessName)
-	} else {
-		sess = sessions[sessName]
 		if sess == nil {
 			writeError(w, http.StatusNotFound, fmt.Errorf("failed to find session with name '%s'", sessName))
 			return
 		}
-	}
 
-	peer, ok := sess.peers[peerName]
-	if !ok {
-		if r.Method == "POST" {
-			var err error
-			peer, err = sess.GetPeer(peerName)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to create new peer: %w", err))
-				return
-			}
-		} else {
+		peer = sess.GetPeer(peerName)
+		if peer == nil {
 			writeError(w, http.StatusNotFound, fmt.Errorf("failed to find peer with name '%s'", peerName))
 			return
 		}
 	}
 
-	if r.Method == "POST" {
+	switch r.Method {
+	case "POST":
 		req := &apiPeerRequest{}
 		if !readJSON(w, r, req) {
 			return
@@ -124,6 +131,12 @@ func handleAPIPeer(w http.ResponseWriter, r *http.Request) {
 			peer.mutex.Lock()
 			peer.signals = sigs
 			peer.mutex.Unlock()
+		}
+
+	case "DELETE":
+		if err := sess.RemovePeer(peer); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("failed to remove peer: %w", err))
+			return
 		}
 	}
 

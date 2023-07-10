@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/VILLASframework/signaling/pkg"
 	"golang.org/x/exp/slog"
 )
+
+const sessionExpiryAge = time.Hour
 
 type Session struct {
 	Name    string
@@ -46,6 +49,13 @@ func NewSession(name string) *Session {
 }
 
 func GetSession(name string) *Session {
+	sessionsMutex.RLock()
+	defer sessionsMutex.RUnlock()
+
+	return sessions[name]
+}
+
+func GetOrCreateSession(name string) (*Session, error) {
 	sessionsMutex.Lock()
 	defer sessionsMutex.Unlock()
 
@@ -55,15 +65,19 @@ func GetSession(name string) *Session {
 		sessions[name] = s
 	}
 
-	return s
+	return s, nil
 }
 
-func (s *Session) RemovePeer(c *Peer) error {
+func (s *Session) RemovePeer(p *Peer) error {
+	if err := p.Close(); err != nil {
+		return fmt.Errorf("failed to close peer: %w", err)
+	}
+
 	s.mutex.Lock()
-	delete(s.peers, c.Name)
+	delete(s.peers, p.Name)
 	s.mutex.Unlock()
 
-	return s.SendControlMessageToAllConnectedPeers()
+	return nil
 }
 
 func (s *Session) SendControlMessageToAllConnectedPeers() error {
@@ -83,6 +97,7 @@ func (s *Session) SendControlMessageToAllConnectedPeers() error {
 		if p.conn == nil {
 			continue
 		}
+
 		if err := p.conn.WriteJSON(msg); err != nil {
 			return err
 		} else {
@@ -147,23 +162,30 @@ func (s *Session) Marshal() pkg.Session {
 	}
 }
 
-func (s *Session) GetPeer(name string) (c *Peer, err error) {
+func (s *Session) GetPeer(name string) (p *Peer) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	return s.peers[name]
+}
+
+func (s *Session) GetOrCreatePeer(name string) (p *Peer, err error) {
 	var ok bool
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	c, ok = s.peers[name]
+	p, ok = s.peers[name]
 	if !ok {
-		c, err = s.NewPeer(name)
+		p, err = s.NewPeer(name)
 		if err != nil {
 			return nil, err
 		}
 
-		s.peers[c.Name] = c
+		s.peers[p.Name] = p
 	}
 
-	return c, nil
+	return p, nil
 }
 
 func closeSessions() {
@@ -184,7 +206,7 @@ func expireSessions() {
 	defer sessionsMutex.Unlock()
 
 	for name, session := range sessions {
-		if len(session.peers) == 0 && time.Since(session.Created) > time.Hour {
+		if len(session.peers) == 0 && time.Since(session.Created) > sessionExpiryAge {
 			slog.Debug("Removing stale session",
 				slog.String("session", name),
 				slog.Time("created", session.Created))

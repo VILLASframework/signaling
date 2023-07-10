@@ -74,15 +74,6 @@ func main() {
 
 	r := mux.NewRouter()
 
-	r.Use(
-		func(next http.Handler) http.Handler {
-			return promhttp.InstrumentHandlerCounter(metricHttpRequestsTotal, next)
-		},
-		func(next http.Handler) http.Handler {
-			return promhttp.InstrumentHandlerDuration(metricHttpRequestDuration, next)
-		},
-	)
-
 	r.Path("/metrics").
 		Methods("GET").
 		Handler(promhttp.Handler())
@@ -107,12 +98,20 @@ func main() {
 
 	a := r.PathPrefix("/api/v1").Subrouter()
 
-	a.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Content-Type", "application/json")
-			next.ServeHTTP(w, r)
-		})
-	})
+	a.Use(
+		func(next http.Handler) http.Handler {
+			return promhttp.InstrumentHandlerCounter(metricHttpRequestsTotal, next)
+		},
+		func(next http.Handler) http.Handler {
+			return promhttp.InstrumentHandlerDuration(metricHttpRequestDuration, next)
+		},
+		func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Add("Content-Type", "application/json")
+				next.ServeHTTP(w, r)
+			})
+		},
+	)
 
 	a.Path("/sessions").
 		Methods("GET").

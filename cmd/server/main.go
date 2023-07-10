@@ -74,28 +74,6 @@ func main() {
 
 	r := mux.NewRouter()
 
-	r.Path("/metrics").
-		Methods("GET").
-		Handler(promhttp.Handler())
-
-	r.Path("/favicon.ico").
-		Methods("GET").
-		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			http.Error(rw, "Not found", http.StatusNotFound)
-		})
-
-	r.Path("/healthz").
-		Methods("GET", "OPTIONS").
-		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			rw.Write([]byte("OK")) //nolint:errcheck
-		})
-
-	r.Path("/{session}").
-		HandlerFunc(handleWebsocket)
-
-	r.Path("/{session}/{peer}").
-		HandlerFunc(handleWebsocket)
-
 	a := r.PathPrefix("/api/v1").Subrouter()
 
 	a.Use(
@@ -124,6 +102,28 @@ func main() {
 	a.Path("/peer/{session}/{peer}").
 		Methods("GET", "POST", "DELETE").
 		HandlerFunc(handleAPIPeer)
+
+	r.Path("/metrics").
+		Methods("GET").
+		Handler(promhttp.Handler())
+
+	r.Path("/favicon.ico").
+		Methods("GET").
+		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			http.Error(rw, "Not found", http.StatusNotFound)
+		})
+
+	r.Path("/healthz").
+		Methods("GET", "OPTIONS").
+		HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			rw.Write([]byte("OK")) //nolint:errcheck
+		})
+
+	r.Path("/{session}").
+		HandlerFunc(handleWebsocket)
+
+	r.Path("/{session}/{peer}").
+		HandlerFunc(handleWebsocket)
 
 	r.PathPrefix("/").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

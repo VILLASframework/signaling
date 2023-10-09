@@ -9,8 +9,17 @@ variables:
 
 stages:
 
+- test
 - packaging
 - latest
+
+test:reuse:
+  stage: test
+  image:
+    name: fsfe/reuse:latest
+    entrypoint: [""]
+  script:
+  - reuse lint
 
 pkg:docker:
   stage: packaging

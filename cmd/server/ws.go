@@ -33,6 +33,7 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := peer.Connect(w, r); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to connect peer: %w", err))
 		return
 	}
 }

@@ -25,11 +25,12 @@ func writeJSON(w http.ResponseWriter, resp any) bool {
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, req any) bool {
+	slog.Info("Reading request body")
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("failed to parse request body: %w", err))
 		return false
 	}
-
+	slog.Info("Read request body", slog.Any("req", req))
 	return true
 }
 
@@ -38,14 +39,16 @@ func writeError(w http.ResponseWriter, code int, err error) bool {
 		Error:  err.Error(),
 		Status: http.StatusText(code),
 	}
+	slog.Info("Writing error response", slog.Any("resp", resp))
 
 	slog.Error("Request failed", slog.Any("error", err))
 
-	if writeJSON(w, resp) {
-		w.WriteHeader(code)
+	// if writeJSON(w, resp) {
+	// 	slog.Info("wrote json")
+	// 	w.WriteHeader(code)
 
-		return true
-	}
+	// 	return true
+	// }
 
 	return false
 }

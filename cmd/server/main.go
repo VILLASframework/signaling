@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	// "fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -126,9 +126,11 @@ func main() {
 		HandlerFunc(handleWebsocket)
 
 	r.PathPrefix("/").
-		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request"))
-		})
+		HandlerFunc(handleWebsocket)	
+		// HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 	slog.Info("Invalid request", slog.Any("path", r.URL.Path))
+		// 	writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request"))
+		// })
 
 	expiryTicker := time.NewTicker(10 * time.Second)
 

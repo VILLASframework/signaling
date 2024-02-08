@@ -6,12 +6,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/websocket"
-	"golang.org/x/exp/slog"
 )
 
 type Connection struct {

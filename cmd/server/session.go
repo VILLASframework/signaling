@@ -5,12 +5,12 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
-	"golang.org/x/exp/slog"
 )
 
 const sessionExpiryAge = time.Hour

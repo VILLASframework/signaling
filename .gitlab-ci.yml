@@ -20,6 +20,8 @@ test:reuse:
     entrypoint: [""]
   script:
   - reuse lint
+  tags:
+    - docker
 
 pkg:docker:
   stage: packaging

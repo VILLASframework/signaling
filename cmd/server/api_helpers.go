@@ -6,9 +6,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
-
-	"golang.org/x/exp/slog"
 )
 
 func writeJSON(w http.ResponseWriter, resp any) bool {

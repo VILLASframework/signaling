@@ -6,11 +6,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/VILLASframework/signaling/pkg"
 	"github.com/gorilla/mux"
-	"golang.org/x/exp/slog"
 )
 
 type apiErrorResponse struct {

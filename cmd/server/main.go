@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"flag"
-	// "fmt" // commented because CI/CD pipeline failed
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"

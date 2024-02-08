@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2023 OPAL-RT Germany GmbH
+# SPDX-License-Identifier: Apache-2.0
 {
   description = "a tool for connecting real-time power grid simulation equipment";
 
@@ -29,7 +31,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in rec {
         default = server;
-        server = pkgs.callPackage ./nix/server.nix {
+        server = pkgs.callPackage ./packaging/nix/server.nix {
           src = ./.;
         };
       }

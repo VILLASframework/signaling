@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: VILLASnode WebRTC Signaling Server
+Upstream-Contact: Steffen Vogel <post@steffenvogel.de>
+Source: https://fein-aachen.org/en/projects/villas-node/
+
+Files: flake.lock
+Copyright: 2023 OPAL-RT Germany GmbH
+License: Apache-2.0

@@ -4,11 +4,11 @@
 package main
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/VILLASframework/signaling/pkg"
-	"golang.org/x/exp/slog"
 )
 
 const (

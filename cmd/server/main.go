@@ -6,7 +6,8 @@ package main
 import (
 	"context"
 	"flag"
-	// "fmt"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,7 +19,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/exp/slog"
 )
 
 type relayInfos []pkg.RelayInfo

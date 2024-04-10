@@ -225,7 +225,7 @@ func (c *Connection) closed() {
 		c.logger.Error("Failed to send control message", slog.Any("error", err))
 	}
 
-	// Remove peer if it does not have any signal metadata associated
+	// Remove peer if it does not have any signal metadata associated.
 	if c.peer.signals == nil {
 		if err := c.peer.session.RemovePeer(c.peer); err != nil {
 			c.logger.Error("Failed to close peer", slog.Any("error", err))

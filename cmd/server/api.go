@@ -116,6 +116,7 @@ func handleAPIPeer(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		req := &apiPeerRequest{}
+		slog.Info("Reading request body", slog.Any("req", req))
 		if !readJSON(w, r, req) {
 			return
 		}

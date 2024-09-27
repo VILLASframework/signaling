@@ -3,13 +3,12 @@
 {
   lib,
   buildGoModule,
-  src,
 }:
 buildGoModule {
-  pname = "villas-signaling-server";
+  pname = "villas-signaling";
   version = "master";
-  src = src;
-  vendorHash = "sha256-5up73J/bzMHlVlwke4w6eetXz7a+SYQJuQnTkP/L2JE=";
+  src = ./.;
+  vendorHash = "sha256-oGkooQbRk9EwMOQNxIcaIGX/jo1df5gY9KsiFVUALKE=";
   meta = with lib; {
     mainProgram = "server";
     license = licenses.asl20;

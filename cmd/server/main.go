@@ -46,9 +46,9 @@ func (r *relayInfos) Set(value string) error {
 
 var (
 	// Flags
-	addr   string
-	relays relayInfos
-	level  string
+	address string
+	relays  relayInfos
+	level   string
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -62,7 +62,7 @@ var (
 )
 
 func main() {
-	flag.StringVar(&addr, "addr", ":8080", "http service address")
+	flag.StringVar(&address, "address", ":8080", "http service address")
 	flag.Var(&relays, "relay", "A TURN/STUN relay which is signalled to each connection (can be specified multiple times)")
 	flag.StringVar(&level, "level", "debug", "The log level")
 	flag.Parse()
@@ -153,10 +153,10 @@ func main() {
 		}
 	}()
 
-	slog.Info("Listening", slog.String("addr", addr))
+	slog.Info("Listening", slog.String("addr", address))
 
 	server = &http.Server{
-		Addr:    addr,
+		Addr:    address,
 		Handler: r,
 	}
 
